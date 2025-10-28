@@ -2,8 +2,11 @@ import os
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import padding
+from cryptography.hazmat.primitives.asymmetric import rsa, padding as asym_padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
 
 class User:
     def __init__(self, username, password_hash, salt, public_key, private_key_encrypted):
@@ -13,6 +16,13 @@ class User:
         self.public_key = public_key
         self.private_key_encrypted = private_key_encrypted
         self.vehicles = []
+
+class Vehicle:
+    def __init__(self, encrypted_license_plate, vehicle_data, symmetric_key):
+        self.encrypted_license_plate = encrypted_license_plate
+        self.encrypted_vehicle_data = vehicle_data
+        self.encrypted_symmetric_key = symmetric_key
+
 
 
 class VehicleManager:
@@ -112,7 +122,6 @@ class VehicleManager:
 
     def generate_key_pair(self):
         """Genera par de claves RSA"""
-        print("Generando par de claves RSA-2048...")
         private_key = rsa.generate_private_key(
             public_exponent=65537,
             key_size=2048
@@ -151,3 +160,126 @@ class VehicleManager:
         except Exception as e:
             print("Error al descifrar clave privada")
             return None
+
+    def add_vehicle(self, license_plate, vehicle_data):
+        """Añade un vehículo para el usuario actual"""
+        if not self.current_user or not self.current_private_key:
+            return False # no hay usuario autenticado
+
+        # Generar clave simétrica aleatoria para este vehículo
+        symmetric_key = self.generate_symmetric_key()
+
+        # Cifrar matrícula con clave simétrica, los primeros 16 bytes son el texto generado para el CBC
+        encrypted_license = self.encrypt_symmetric(license_plate, symmetric_key)
+        encrypted_vehicle_data = self.encrypt_symmetric(vehicle_data, symmetric_key)
+
+        # Obtener clave pública del usuario
+        public_key = self.deserialize_public_key(self.current_user.public_key)
+
+        # Cifrar la clave simétrica con la clave publica de nuestro usuario
+        encrypted_symmetric_key = self.encrypt_asymmetric(symmetric_key, public_key)
+
+        # Crear y almacenar vehículo
+        vehicle = Vehicle(encrypted_license, encrypted_vehicle_data, encrypted_symmetric_key)
+        self.current_user.vehicles.append(vehicle)
+
+        return True
+
+    def get_user_vehicles(self):
+        """Obtiene los vehículos del usuario actual"""
+        if not self.current_user or not self.current_private_key:
+            return []
+
+        vehicles_license_plates = []
+        vehicles_data = []
+
+        for vehicle in self.current_user.vehicles:
+            try:
+                # Extraer claves cifradas
+                encrypted_symmetric_key = vehicle.encrypted_symmetric_key
+
+                # Descifrar claves simétrica con clave privada del usuario
+                symmetric_key = self.decrypt_asymmetric(encrypted_symmetric_key, self.current_private_key)
+
+                # Descifrar matrícula y datos con la clave simetrica ya descifrada
+                license_plate = self.decrypt_symmetric(vehicle.encrypted_license_plate, symmetric_key)
+                vehicle_data = self.decrypt_symmetric(vehicle.encrypted_vehicle_data, symmetric_key)
+                vehicles_license_plates.append(license_plate)
+                vehicles_data.append(vehicle_data)
+
+
+            except Exception as e:
+                print("Error procesando vehículos")
+                continue
+
+        return vehicles_license_plates, vehicles_data
+
+    def encrypt_symmetric(self, data, key):
+        """Cifrado simétrico con AES-256-CBC """
+
+        iv = os.urandom(16) # vector de inicializacion para el CBC
+
+        # Usamos el padder PKCS7 que añade bytes para llegar al tamalo de bloque requerido
+        padder = padding.PKCS7(128).padder()
+
+        #convertimos la string a bytes y la dividimos en bloques para cumplir con el tamaño del AES 256 -> 32 B
+        padded_data = padder.update(data.encode()) + padder.finalize()
+
+        #Hacemos el cifrado con la clave creada con AES y modo CBC
+        cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+        encryptor = cipher.encryptor()
+        ciphertext = encryptor.update(padded_data) + encryptor.finalize()
+
+        # Devuelve IV y texto cifrado en bytes puros
+        return iv + ciphertext
+
+    def encrypt_asymmetric(self, data, public_key):
+        """Cifrado asimétrico con RSA"""
+
+        ciphertext = public_key.encrypt(
+            data,
+            asym_padding.OAEP(
+                mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        )
+
+        return ciphertext
+
+    def generate_symmetric_key(self):
+        """Genera clave simétrica AES (256 bits)"""
+        key = os.urandom(32)
+        return key
+
+    def decrypt_asymmetric(self, encrypted_data, private_key):
+        """Descifrado asimétrico con RSA"""
+
+        ciphertext = encrypted_data
+        plaintext = private_key.decrypt(
+            ciphertext,
+            asym_padding.OAEP(
+                mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        )
+        return plaintext
+
+    def decrypt_symmetric(self, encrypted_data, key):
+        """Descifrado simétrico con AES"""
+
+        iv = encrypted_data[:16]
+        ciphertext = encrypted_data[16:]
+
+        #descifra el texto usando AES con CBC usando el mismo texto inicial usado para cifrarlo
+        cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+        decryptor = cipher.decryptor()
+        padded_plaintext = decryptor.update(ciphertext) + decryptor.finalize()
+
+        #Quitamos el padding que se habia puesto a algunos bloques y vovlemos a juntar los bloques
+        unpadder = padding.PKCS7(128).unpadder()
+        plaintext = unpadder.update(padded_plaintext) + unpadder.finalize()
+
+        return plaintext.decode()
+
