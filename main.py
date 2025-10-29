@@ -3,10 +3,8 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.asymmetric import rsa, padding as asym_padding
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-
+from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
 class User:
     def __init__(self, username, password_hash, salt, public_key, private_key_encrypted):
@@ -214,24 +212,26 @@ class VehicleManager:
 
         return vehicles_license_plates, vehicles_data
 
+    def generate_symmetric_key(self):
+        """Genera clave simétrica para el ChaCha20 de 256 bits/ 32 Bytes"""
+        key = os.urandom(32)
+        return key
+
     def encrypt_symmetric(self, data, key):
-        """Cifrado simétrico con AES-256-CBC """
+        """Cifrado simétrico con ChaCha20-Poly1305"""
+        chacha = ChaCha20Poly1305(key)
+        nonce = os.urandom(12)  # 96 bits
+        ciphertext = chacha.encrypt(nonce, data.encode(), None)
+        # Guardamos nonce primeros 12 bytes + ciphertext el resto
+        return nonce + ciphertext
 
-        iv = os.urandom(16) # vector de inicializacion para el CBC
-
-        # Usamos el padder PKCS7 que añade bytes para llegar al tamalo de bloque requerido
-        padder = padding.PKCS7(128).padder()
-
-        #convertimos la string a bytes y la dividimos en bloques para cumplir con el tamaño del AES 256 -> 32 B
-        padded_data = padder.update(data.encode()) + padder.finalize()
-
-        #Hacemos el cifrado con la clave creada con AES y modo CBC
-        cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
-        encryptor = cipher.encryptor()
-        ciphertext = encryptor.update(padded_data) + encryptor.finalize()
-
-        # Devuelve IV y texto cifrado en bytes puros
-        return iv + ciphertext
+    def decrypt_symmetric(self, encrypted_data, key):
+        """Descifrado simétrico con ChaCha20-Poly1305"""
+        nonce = encrypted_data[:12]
+        ciphertext = encrypted_data[12:]
+        chacha = ChaCha20Poly1305(key)
+        plaintext = chacha.decrypt(nonce, ciphertext, None)
+        return plaintext.decode()
 
     def encrypt_asymmetric(self, data, public_key):
         """Cifrado asimétrico con RSA"""
@@ -247,10 +247,6 @@ class VehicleManager:
 
         return ciphertext
 
-    def generate_symmetric_key(self):
-        """Genera clave simétrica AES (256 bits)"""
-        key = os.urandom(32)
-        return key
 
     def decrypt_asymmetric(self, encrypted_data, private_key):
         """Descifrado asimétrico con RSA"""
@@ -266,20 +262,4 @@ class VehicleManager:
         )
         return plaintext
 
-    def decrypt_symmetric(self, encrypted_data, key):
-        """Descifrado simétrico con AES"""
-
-        iv = encrypted_data[:16]
-        ciphertext = encrypted_data[16:]
-
-        #descifra el texto usando AES con CBC usando el mismo texto inicial usado para cifrarlo
-        cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
-        decryptor = cipher.decryptor()
-        padded_plaintext = decryptor.update(ciphertext) + decryptor.finalize()
-
-        #Quitamos el padding que se habia puesto a algunos bloques y vovlemos a juntar los bloques
-        unpadder = padding.PKCS7(128).unpadder()
-        plaintext = unpadder.update(padded_plaintext) + unpadder.finalize()
-
-        return plaintext.decode()
 
