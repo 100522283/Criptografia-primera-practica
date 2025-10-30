@@ -59,7 +59,7 @@ class VehicleManager:
     def __init__(self):
         self.user_storer = JsonStore("users.json")
         self.vehicle_storer = JsonStore("vehicles.json")
-        self.users = self.user_storer.elementos
+        self.users = []
         self.current_user = None
         self.current_private_key = None
 
@@ -94,6 +94,7 @@ class VehicleManager:
     def register_user(self, username, password):
         """Registra un nuevo usuario"""
         # Verificar si el usuario ya existe
+        self.users = self.user_storer.elementos
         for user in self.users:
             if user["username"] == username:
                 return False,  #El usuario ya existe
@@ -134,6 +135,7 @@ class VehicleManager:
     def authenticate_user(self, username, password):
         # Buscar usuario
         user = None
+        self.users = self.user_storer.elementos
         for u in self.users:
             if u["username"] == username:
                 user = u
