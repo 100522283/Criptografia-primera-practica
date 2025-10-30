@@ -39,6 +39,7 @@ class JsonStore():
         except:
             print("Error al guardar los datos")
 
+
     def cargar_datos(self):
         try:
             with open(self.archivo, "r", encoding="utf-8",
@@ -219,18 +220,19 @@ class VehicleManager:
         encrypted_vehicle_data = self.encrypt_symmetric(vehicle_data, symmetric_key)
 
         # Obtener clave pública del usuario
-        public_key = self.deserialize_public_key(self.current_user.public_key)
+        public_key = self.deserialize_public_key(self.current_user[
+                                                     "public_key_str"])
 
         # Cifrar la clave simétrica con la clave publica de nuestro usuario
         encrypted_symmetric_key = self.encrypt_asymmetric(symmetric_key, public_key)
 
         # Crear y almacenar vehículo
         vehicle = Vehicle(encrypted_license, encrypted_vehicle_data, encrypted_symmetric_key)
-        self.current_user.vehicles.append(vehicle)
+        self.current_user["vehicles"].append(vehicle)
 
-        json_vehicle = {"license": encrypted_license,
-                     "data": encrypted_vehicle_data,
-                     "symmetric_key": encrypted_symmetric_key}
+        json_vehicle = {"license": base64.b64encode(encrypted_license).decode("utf-8"),
+                     "data": base64.b64encode(encrypted_vehicle_data).decode("utf-8"),
+                     "symmetric_key": base64.b64encode(encrypted_symmetric_key).decode("utf-8")}
 
         self.vehicle_storer.sumar_elemento(json_vehicle)
 
@@ -318,6 +320,7 @@ class VehicleManager:
         return plaintext
 
 
+
 vehicle_manager = VehicleManager()
 while 0 != 1:
     start = input("¿Qué desea hacer?: Registro = 0|Inicio de sesión = 1"      )
@@ -330,12 +333,17 @@ while 0 != 1:
         contraseña = input("Contraseña: ")
         sesion_iniciada = vehicle_manager.authenticate_user(usuario, contraseña)
         while sesion_iniciada:
-            acción = input("¿Qué desea hacer?: Añadir vahículo = 0|Cierre de "
-                          "sesión = 1")
+            acción = input("¿Qué desea hacer?: Añadir vahículo = 0|Ver "
+                           "vehículos = 1|Cierre de "
+                          "sesión = 2")
             if int(acción) == 0:
                 matricula = input("Mátricula:")
                 informacion = input("Información del coche")
                 vehicle_manager.add_vehicle(matricula, informacion)
             elif int(acción) == 1:
+                vehicle_manager.get_user_vehicles()
+            elif int(acción) == 2:
+                vehicle_manager.current_user = None
+                vehicle_manager.current_private_key = None
                 sesion_iniciada = False
 
