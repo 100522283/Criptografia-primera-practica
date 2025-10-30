@@ -1,6 +1,6 @@
 import os
 import json
-
+import base64
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
@@ -114,19 +114,16 @@ class VehicleManager:
         public_key_str = self.serialize_public_key(public_key)
 
         # crear y almacenar usuario
-        new_user = User(username, password_hash, salt,
-                        public_key_str, encrypted_private_key)
-        self.users.append(new_user)
 
         json_user = {"username": username,
-                     "password_hash": password_hash,
-                     "salt": salt,
+                     "password_hash": base64.b64encode(password_hash).decode("utf-8"),
+                     "salt": base64.b64encode(salt).decode("utf-8"),
                      "public_key_str": public_key_str,
-                     "private_key_encrypted": encrypted_private_key,
+                     "private_key_encrypted": base64.b64encode(encrypted_private_key).decode("utf-8"),
                      "vehicles":[]}
 
         self.user_storer.sumar_elemento(json_user)
-
+        self.users = self.user_storer.elementos
 
         # tod o correcto
         return True
@@ -135,6 +132,7 @@ class VehicleManager:
         # Buscar usuario
         user = None
         for u in self.users:
+            print(u["username"])
             if u["username"] == username:
                 user = u
                 break
@@ -143,13 +141,15 @@ class VehicleManager:
             print("Usuario no encontrado")
             return False
 
-        salt = user["salt"]
+        salt = base64.b64decode(user["salt"])
+        stored_hash = base64.b64decode(user["password_hash"])
+        encrypted_private_key = base64.b64decode(user["private_key_encrypted"])
 
         #verificamos si el usuario es el correcto a partir de la contraseña
-        if self.verify_password(password, salt, user["password_hash"]):
+        if self.verify_password(password, salt, stored_hash):
 
             # Desifrar clave privada
-            private_key = self.decrypt_private_key(user["private_key_encrypted"], password)
+            private_key = self.decrypt_private_key(encrypted_private_key, password)
             if private_key:
                 #guardamos TEMPORALMENTE la clave privada para ser usada ahora
                 self.current_user = user
