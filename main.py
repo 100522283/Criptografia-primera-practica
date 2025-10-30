@@ -1,4 +1,6 @@
 import os
+import json
+
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
@@ -22,10 +24,38 @@ class Vehicle:
         self.encrypted_symmetric_key = symmetric_key
 
 
+class JsonStore():
+
+    def __init__(self, archivo):
+        self.elementos = []
+        self.archivo = os.path.dirname(__file__) + archivo
+        self.cargar_datos()
+
+    def guardar_datos(self):
+        try:
+            with open(self.archivo, "w", encoding="utf-8", newline="") as file:
+                json.dump(self.elementos, file, indent=2)
+        except:
+            print("Error al guardar los datos")
+
+    def cargar_datos(self):
+        try:
+            with open(self.archivo, "r", encoding="utf-8",
+                      newline="") as file_opened:
+                self.elementos = json.load(file_opened)
+        except:
+            print("Error al cargar los datos")
+
+    def sumar_elemento(self, item):
+        self.cargar_datos()
+        self.elementos.append(item.to_json())
+        self.guardar_datos()
 
 class VehicleManager:
     def __init__(self):
-        self.users = []
+        self.user_storer = JsonStore("users.json")
+        self.vehicle_storer = JsonStore("vehicles.json")
+        self.users = self.user_storer.cargar_datos()
         self.current_user = None
         self.current_private_key = None
 
@@ -83,6 +113,16 @@ class VehicleManager:
                         public_key_str, encrypted_private_key)
         self.users.append(new_user)
 
+        json_user = {"username": username,
+                     "password_hash": password_hash,
+                     "salt": salt,
+                     "public_key_str": public_key_str,
+                     "private_key_encrypted": encrypted_private_key,
+                     "vehicles":[]}
+
+        self.user_storer.sumar_elemento(json_user)
+
+
         # tod o correcto
         return True
 
@@ -90,7 +130,7 @@ class VehicleManager:
         # Buscar usuario
         user = None
         for u in self.users:
-            if u.username == username:
+            if u["username"] == username:
                 user = u
                 break
 
@@ -98,13 +138,13 @@ class VehicleManager:
             print("Usuario no encontrado")
             return False
 
-        salt = user.salt
+        salt = user["salt"]
 
         #verificamos si el usuario es el correcto a partir de la contraseña
-        if self.verify_password(password, salt, user.password_hash):
+        if self.verify_password(password, salt, user["password_hash"]):
 
             # Desifrar clave privada
-            private_key = self.decrypt_private_key(user.private_key_encrypted, password)
+            private_key = self.decrypt_private_key(user["private_key_encrypted"], password)
             if private_key:
                 #guardamos TEMPORALMENTE la clave privada para ser usada ahora
                 self.current_user = user
@@ -181,6 +221,12 @@ class VehicleManager:
         vehicle = Vehicle(encrypted_license, encrypted_vehicle_data, encrypted_symmetric_key)
         self.current_user.vehicles.append(vehicle)
 
+        json_vehicle = {"license": encrypted_license,
+                     "data": encrypted_vehicle_data,
+                     "symmetric_key": encrypted_symmetric_key}
+
+        self.vehicle_storer.sumar_elemento(json_vehicle)
+
         return True
 
     def get_user_vehicles(self):
@@ -188,20 +234,22 @@ class VehicleManager:
         if not self.current_user or not self.current_private_key:
             return []
 
+        vehicles = self.vehicle_storer.cargar_datos()
+
         vehicles_license_plates = []
         vehicles_data = []
 
-        for vehicle in self.current_user.vehicles:
+        for vehicle in vehicles:
             try:
                 # Extraer claves cifradas
-                encrypted_symmetric_key = vehicle.encrypted_symmetric_key
+                encrypted_symmetric_key = vehicle["symmetryc_key"]
 
                 # Descifrar claves simétrica con clave privada del usuario
                 symmetric_key = self.decrypt_asymmetric(encrypted_symmetric_key, self.current_private_key)
 
                 # Descifrar matrícula y datos con la clave simetrica ya descifrada
-                license_plate = self.decrypt_symmetric(vehicle.encrypted_license_plate, symmetric_key)
-                vehicle_data = self.decrypt_symmetric(vehicle.encrypted_vehicle_data, symmetric_key)
+                license_plate = self.decrypt_symmetric(vehicle["license"], symmetric_key)
+                vehicle_data = self.decrypt_symmetric(vehicle["data"], symmetric_key)
                 vehicles_license_plates.append(license_plate)
                 vehicles_data.append(vehicle_data)
 
@@ -262,4 +310,25 @@ class VehicleManager:
         )
         return plaintext
 
+
+vehicle_manager = VehicleManager
+while 0 != 1:
+    start = input("¿Qué desea hacer?: Registro = 0|Inicio de sesión = 1"      )
+    if int(start) == 0:
+        usuario = input("Nombre usuario: ")
+        contraseña = input("Contraseña: ")
+        vehicle_manager.register_user(usuario, contraseña)
+    elif int(start) == 1:
+        usuario = input("Nombre usuario: ")
+        contraseña = input("Contraseña: ")
+        sesion_iniciada = vehicle_manager.authenticate_user(usuario, contraseña)
+        while sesion_iniciada:
+            acción = input("¿Qué desea hacer?: Añadir vahículo = 0|Cierre de "
+                          "sesión = 1")
+            if int(acción) == 0:
+                matricula = input("Mátricula:")
+                informacion = input("Información del coche")
+                vehicle_manager.add_vehicle(matricula, informacion)
+            elif int(acción) == 1:
+                sesion_iniciada = False
 
