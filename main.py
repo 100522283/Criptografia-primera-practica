@@ -224,14 +224,19 @@ class VehicleManager:
         encrypted_symmetric_key = self.encrypt_asymmetric(symmetric_key, public_key)
 
         # Crear y almacenar vehículo
-        vehicle = Vehicle(encrypted_license, encrypted_vehicle_data, encrypted_symmetric_key)
-        self.current_user["vehicles"].append(vehicle)
+
 
         json_vehicle = {"license": base64.b64encode(encrypted_license).decode("utf-8"),
                      "data": base64.b64encode(encrypted_vehicle_data).decode("utf-8"),
                      "symmetric_key": base64.b64encode(encrypted_symmetric_key).decode("utf-8")}
 
         self.vehicle_storer.sumar_elemento(json_vehicle)
+
+        for n in self.user_storer.elementos:
+            if n["username"] == self.current_user["username"]:
+                n["vehicles"].append(license_plate)
+
+        self.user_storer.guardar_datos()
 
         return True
 
@@ -351,4 +356,3 @@ while 0 != 1:
                 vehicle_manager.current_user = None
                 vehicle_manager.current_private_key = None
                 sesion_iniciada = False
-
