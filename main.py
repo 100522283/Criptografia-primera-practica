@@ -28,10 +28,11 @@ class JsonStore():
 
     def __init__(self, archivo):
         self.elementos = []
-        self.archivo = os.path.dirname(__file__) + archivo
+        self.archivo = os.path.join(os.path.dirname(__file__), "") + archivo
         self.cargar_datos()
 
     def guardar_datos(self):
+        print(self.archivo)
         try:
             with open(self.archivo, "w", encoding="utf-8", newline="") as file:
                 json.dump(self.elementos, file, indent=2)
@@ -43,19 +44,22 @@ class JsonStore():
             with open(self.archivo, "r", encoding="utf-8",
                       newline="") as file_opened:
                 self.elementos = json.load(file_opened)
+        except FileNotFoundError:
+            self.elementos = []
         except:
             print("Error al cargar los datos")
 
     def sumar_elemento(self, item):
+        print(item)
         self.cargar_datos()
-        self.elementos.append(item.to_json())
+        self.elementos.append(item)
         self.guardar_datos()
 
 class VehicleManager:
     def __init__(self):
         self.user_storer = JsonStore("users.json")
         self.vehicle_storer = JsonStore("vehicles.json")
-        self.users = self.user_storer.cargar_datos()
+        self.users = self.user_storer.elementos
         self.current_user = None
         self.current_private_key = None
 
@@ -91,12 +95,13 @@ class VehicleManager:
         """Registra un nuevo usuario"""
         # Verificar si el usuario ya existe
         for user in self.users:
-            if user.username == username:
+            if user["username"] == username:
                 return False,  #El usuario ya existe
 
 
         # Generar hash apartir de la  contraseña
         salt, password_hash = self.hash_password(password)
+        print(password_hash)
 
         # Generar las claves privadas y publicas del usuario
         private_key, public_key = self.generate_key_pair()
@@ -234,7 +239,7 @@ class VehicleManager:
         if not self.current_user or not self.current_private_key:
             return []
 
-        vehicles = self.vehicle_storer.cargar_datos()
+        vehicles = self.vehicle_storer.elementos
 
         vehicles_license_plates = []
         vehicles_data = []
@@ -311,7 +316,7 @@ class VehicleManager:
         return plaintext
 
 
-vehicle_manager = VehicleManager
+vehicle_manager = VehicleManager()
 while 0 != 1:
     start = input("¿Qué desea hacer?: Registro = 0|Inicio de sesión = 1"      )
     if int(start) == 0:
