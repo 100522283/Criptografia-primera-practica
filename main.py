@@ -213,7 +213,6 @@ class VehicleManager:
         symmetric_key = self.generate_symmetric_key()
 
         # Cifrar matrícula con clave simétrica, los primeros 16 bytes son el texto generado para el CBC
-        encrypted_license = self.encrypt_symmetric(license_plate, symmetric_key)
         encrypted_vehicle_data = self.encrypt_symmetric(vehicle_data, symmetric_key)
 
         # Obtener clave pública del usuario
@@ -223,15 +222,17 @@ class VehicleManager:
         # Cifrar la clave simétrica con la clave publica de nuestro usuario
         encrypted_symmetric_key = self.encrypt_asymmetric(symmetric_key, public_key)
 
-        # Crear y almacenar vehículo
-        vehicle = Vehicle(encrypted_license, encrypted_vehicle_data, encrypted_symmetric_key)
-        self.current_user["vehicles"].append(vehicle)
-
-        json_vehicle = {"license": base64.b64encode(encrypted_license).decode("utf-8"),
+        json_vehicle = {"license": license_plate,
                      "data": base64.b64encode(encrypted_vehicle_data).decode("utf-8"),
                      "symmetric_key": base64.b64encode(encrypted_symmetric_key).decode("utf-8")}
 
         self.vehicle_storer.sumar_elemento(json_vehicle)
+
+        for n in self.user_storer.elementos:
+            if n["username"] == self.current_user["username"]:
+                n["vehicles"].append(license_plate)
+
+        self.user_storer.guardar_datos()
 
         return True
 
@@ -241,33 +242,26 @@ class VehicleManager:
             return []
 
         vehicles = self.vehicle_storer.elementos
-
         vehicles_license_plates = []
         vehicles_data = []
 
         for vehicle in vehicles:
+                # Miramos que vehiculos tiene cada usuario
+                matricula = vehicle["license"]
+                if matricula in self.current_user["vehicles"]:
+                    encrypted_symmetric_key = base64.b64decode(vehicle["symmetric_key"])
+                    encrypted_vehicle_data = base64.b64decode(vehicle["data"])
 
-                # Extraer claves cifradas
-                encrypted_symmetric_key = base64.b64decode(vehicle["symmetric_key"])
-                encrypted_license = base64.b64decode(vehicle["license"])
-                encrypted_vehicle_data = base64.b64decode(vehicle["data"])
+                    # Descifrar claves simétrica con clave privada del usuario
+                    symmetric_key = self.decrypt_asymmetric(encrypted_symmetric_key, self.current_private_key)
 
-                # Descifrar claves simétrica con clave privada del usuario
-                symmetric_key = self.decrypt_asymmetric(encrypted_symmetric_key, self.current_private_key)
+                    # Descifrar los datos con la clave simetrica ya descifrada
+                    vehicle_data = self.decrypt_symmetric(encrypted_vehicle_data, symmetric_key)
 
-                # Descifrar matrícula y datos con la clave simetrica ya descifrada
-                license_plate = self.decrypt_symmetric(encrypted_license, symmetric_key)
-                vehicle_data = self.decrypt_symmetric(encrypted_vehicle_data, symmetric_key)
-                vehicles_license_plates.append(license_plate)
-                vehicles_data.append(vehicle_data)
+                    vehicles_license_plates.append(matricula)
+                    vehicles_data.append(vehicle_data)
         return vehicles_license_plates, vehicles_data
 
-
-
-
-
-
-        return vehicles_license_plates, vehicles_data
 
     def generate_symmetric_key(self):
         """Genera clave simétrica para el ChaCha20 de 256 bits/ 32 Bytes"""
