@@ -32,7 +32,6 @@ class JsonStore():
         self.cargar_datos()
 
     def guardar_datos(self):
-        print(self.archivo)
         try:
             with open(self.archivo, "w", encoding="utf-8", newline="") as file:
                 json.dump(self.elementos, file, indent=2)
@@ -51,7 +50,6 @@ class JsonStore():
             print("Error al cargar los datos")
 
     def sumar_elemento(self, item):
-        print(item)
         self.cargar_datos()
         self.elementos.append(item)
         self.guardar_datos()
@@ -98,12 +96,12 @@ class VehicleManager:
         self.users = self.user_storer.elementos
         for user in self.users:
             if user["username"] == username:
-                return False,  #El usuario ya existe
+                print("username already exists")
+                return False  #El usuario ya existe
 
 
         # Generar hash apartir de la  contraseña
         salt, password_hash = self.hash_password(password)
-        print(password_hash)
 
         # Generar las claves privadas y publicas del usuario
         private_key, public_key = self.generate_key_pair()
@@ -135,13 +133,12 @@ class VehicleManager:
         user = None
         self.users = self.user_storer.elementos
         for u in self.users:
-            print(u["username"])
             if u["username"] == username:
                 user = u
                 break
 
         if not user:
-            print("Usuario no encontrado")
+            print("User not found")
             return False
 
         salt = base64.b64decode(user["salt"])
@@ -249,23 +246,26 @@ class VehicleManager:
         vehicles_data = []
 
         for vehicle in vehicles:
-            try:
+
                 # Extraer claves cifradas
-                encrypted_symmetric_key = vehicle["symmetryc_key"]
+                encrypted_symmetric_key = base64.b64decode(vehicle["symmetric_key"])
+                encrypted_license = base64.b64decode(vehicle["license"])
+                encrypted_vehicle_data = base64.b64decode(vehicle["data"])
 
                 # Descifrar claves simétrica con clave privada del usuario
                 symmetric_key = self.decrypt_asymmetric(encrypted_symmetric_key, self.current_private_key)
 
                 # Descifrar matrícula y datos con la clave simetrica ya descifrada
-                license_plate = self.decrypt_symmetric(vehicle["license"], symmetric_key)
-                vehicle_data = self.decrypt_symmetric(vehicle["data"], symmetric_key)
+                license_plate = self.decrypt_symmetric(encrypted_license, symmetric_key)
+                vehicle_data = self.decrypt_symmetric(encrypted_vehicle_data, symmetric_key)
                 vehicles_license_plates.append(license_plate)
                 vehicles_data.append(vehicle_data)
+        return vehicles_license_plates, vehicles_data
 
 
-            except Exception as e:
-                print("Error procesando vehículos")
-                continue
+
+
+
 
         return vehicles_license_plates, vehicles_data
 
@@ -279,6 +279,7 @@ class VehicleManager:
         chacha = ChaCha20Poly1305(key)
         nonce = os.urandom(12)  # 96 bits
         ciphertext = chacha.encrypt(nonce, data.encode(), None)
+        print("\nCifrado el dato con ChaCha-Poly1305: " + str(data) + " \nLongitud de clave " + str(len(key)) +"\nResultando en el texto cifrado: " + str(nonce)+str(ciphertext))
         # Guardamos nonce primeros 12 bytes + ciphertext el resto
         return nonce + ciphertext
 
@@ -301,6 +302,7 @@ class VehicleManager:
                 label=None
             )
         )
+        print("\nCifrado el dato usando RSA: " + str(data) + "\nLongitud de clave: 2048" + "\nResultando en el texto cifrado: " + str(ciphertext))
 
         return ciphertext
 
@@ -323,7 +325,7 @@ class VehicleManager:
 
 vehicle_manager = VehicleManager()
 while 0 != 1:
-    start = input("¿Qué desea hacer?: Registro = 0|Inicio de sesión = 1"      )
+    start = input("¿Qué desea hacer?: Registro = 0|Inicio de sesión = 1: "      )
     if int(start) == 0:
         usuario = input("Nombre usuario: ")
         contraseña = input("Contraseña: ")
@@ -335,13 +337,16 @@ while 0 != 1:
         while sesion_iniciada:
             acción = input("¿Qué desea hacer?: Añadir vahículo = 0|Ver "
                            "vehículos = 1|Cierre de "
-                          "sesión = 2")
+                          "sesión = 2: " )
             if int(acción) == 0:
-                matricula = input("Mátricula:")
-                informacion = input("Información del coche")
+                matricula = input("Mátricula: ")
+                informacion = input("Información del coche: ")
                 vehicle_manager.add_vehicle(matricula, informacion)
             elif int(acción) == 1:
-                vehicle_manager.get_user_vehicles()
+                matriculas_vehiculos, datos_vehiculos = vehicle_manager.get_user_vehicles()
+                for i in range(len(matriculas_vehiculos)):
+                    print("Matriculas: " + matriculas_vehiculos[i])
+                    print("Datos: " + datos_vehiculos[i])
             elif int(acción) == 2:
                 vehicle_manager.current_user = None
                 vehicle_manager.current_private_key = None
