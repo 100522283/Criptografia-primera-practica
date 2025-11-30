@@ -14,8 +14,10 @@ while 0 != 1:
         sesion_iniciada = vehicle_manager.authenticate_user(usuario, contraseña)
         while sesion_iniciada:
             acción = input("¿Qué desea hacer?: Añadir vahículo = 0|Ver "
-                           "vehículos = 1|Compartir Coche = 2|Cierre de "
-                          "sesión = 3: " )
+                           "vehículos = 1|Compartir Coche = 2|Ver mensajes = "
+                           "3|Cierre "
+                           "de "
+                          "sesión = 4: " )
             if int(acción) == 0:
                 matricula = input("Mátricula: ")
                 informacion = input("Información del coche: ")
@@ -33,6 +35,8 @@ while 0 != 1:
                 matricula = input("Matricula del vehiculo a compartir: ")
                 vehicle_manager.enviar_mensaje(nombre, matricula)
             elif int(acción) == 3:
+                vehicle_manager.ver_mensajes()
+            elif int(acción) == 4:
                 vehicle_manager.current_user = None
                 vehicle_manager.current_private_key = None
                 sesion_iniciada = False
