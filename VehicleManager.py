@@ -7,6 +7,8 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, padding as asym_padding
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding
 
 class User:
     def __init__(self, username, password_hash, salt, public_key, private_key_encrypted):
@@ -28,6 +30,7 @@ class VehicleManager:
     def __init__(self):
         self.user_storer = JsonStore("users.json")
         self.vehicle_storer = JsonStore("vehicles.json")
+        self.mensajes_storer = JsonStore("mensajes.json")
         self.users = []
         self.current_user = None
         self.current_private_key = None
@@ -95,6 +98,7 @@ class VehicleManager:
 
         self.user_storer.sumar_elemento(json_user)
         self.users = self.user_storer.elementos
+
 
         # tod o correcto
         return True
@@ -352,5 +356,32 @@ class VehicleManager:
             return False
 
         return True
+
+
+
+    def enviar_mensaje(self, receptor, matricula):
+        matriculas, datos_coches = self.get_user_vehicles()
+        for n in range(len(matriculas)):
+            if matricula == matriculas[n]:
+                print(datos_coches[n])
+                firma = self.current_private_key.sign(
+                    datos_coches[n].encode("utf-8"),
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()),
+                        salt_length=padding.PSS.MAX_LENGTH
+                    ),
+                    hashes.SHA256()
+                )
+                print(firma)
+
+                mensaje = {"mensaje": datos_coches[n],
+                           "firma": base64.b64encode(firma).decode("utf-8"),
+                           "emisor": self.current_user["username"],
+                           "kpb_emisor": self.current_user["public_key_str"],
+                           "receptor": receptor}
+
+                self.mensajes_storer.sumar_elemento(mensaje)
+                print("Mensaje enviado.\n")
+
 
 
