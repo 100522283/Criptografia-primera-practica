@@ -31,7 +31,7 @@ while 0 != 1:
             elif int(acción) == 2:
                 nombre = input("Nombre Persona a compartir vehiculo: ")
                 matricula = input("Matricula del vehiculo a compartir: ")
-                vehicle_manager.share_vehicle(nombre, matricula)
+                vehicle_manager.enviar_mensaje(nombre, matricula)
             elif int(acción) == 3:
                 vehicle_manager.current_user = None
                 vehicle_manager.current_private_key = None
