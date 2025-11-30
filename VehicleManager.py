@@ -383,5 +383,27 @@ class VehicleManager:
                 self.mensajes_storer.sumar_elemento(mensaje)
                 print("Mensaje enviado.\n")
 
+    def ver_mensajes(self):
+        mensajes = self.mensajes_storer.elementos
+        """mis_mensajes= []
+        emisores = []"""
+        for n in mensajes:
+            if n["receptor"] == self.current_user["username"]:
+                try:
+                    kbp_emisor = self.deserialize_public_key(n["kpb_emisor"])
+                    valido = kbp_emisor.verify(
+                        base64.b64decode(n["firma"]),
+                        n["mensaje"].encode("utf-8"),
+                        padding.PSS(
+                            mgf=padding.MGF1(hashes.SHA256()),
+                            salt_length=padding.PSS.MAX_LENGTH
+                        ),
+                        hashes.SHA256()
+                    )
+                    print(valido)
+                    print("Mensaje verificado.")
+                    print(n["emisor"], "envia: ", n["mensaje"])
+                except:
+                    print("Mensaje no verificado.")
 
 
