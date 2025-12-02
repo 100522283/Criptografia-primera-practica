@@ -317,8 +317,8 @@ class VehicleManager:
 
         return True
 
-    def add_vehicle_to_user(self, license_plate, symmetric_key, user):
-        """Funcion para añadir la clave simetrica de un vehiculo a un usuario"""
+    """def add_vehicle_to_user(self, license_plate, symmetric_key, user):
+        #Funcion para añadir la clave simetrica de un vehiculo a un usuario
         if license_plate in user["vehicles"]:
             print("User already haves this vehicle")
             return False
@@ -338,7 +338,7 @@ class VehicleManager:
         return True
 
     def share_vehicle(self,name ,matricula):
-        """Funcion para compartir un vehiculo a otro usuario"""
+        #Funcion para compartir un vehiculo a otro usuario
         if not self.current_user or not self.current_private_key:
             print("Este usuario no esta registrado en la base de datos")
             return False
@@ -355,12 +355,16 @@ class VehicleManager:
             print("No existe usuario para compartir los datos")
             return False
 
-        return True
+        return True"""
 
 
 
     def enviar_mensaje(self, receptor, matricula):
         matriculas, datos_coches = self.get_user_vehicles()
+        usuarios = self.user_storer.elementos
+        for n in usuarios:
+            if n["username"] == receptor:
+                pbk_receptor = self.deserialize_public_key(n["public_key_str"])
         for n in range(len(matriculas)):
             if matricula == matriculas[n]:
                 print(datos_coches[n])
@@ -374,7 +378,15 @@ class VehicleManager:
                 )
                 print(firma)
 
-                mensaje = {"mensaje": datos_coches[n],
+                clave_simetrica = self.access_vehicle_symmetric(matricula)
+
+                clave_simetrica_encriptada = self.encrypt_asymmetric(
+                    clave_simetrica, pbk_receptor)
+
+                datos_cifrados = self.encrypt_symmetric(datos_coches[n], clave_simetrica)
+
+                mensaje = {"clave_simetrica": base64.b64encode(clave_simetrica_encriptada).decode("utf-8"),
+                           "mensaje_cifrado": base64.b64encode(datos_cifrados).decode("utf-8"),
                            "firma": base64.b64encode(firma).decode("utf-8"),
                            "emisor": self.current_user["username"],
                            "kpb_emisor": self.current_user["public_key_str"],
@@ -391,9 +403,13 @@ class VehicleManager:
             if n["receptor"] == self.current_user["username"]:
                 try:
                     kbp_emisor = self.deserialize_public_key(n["kpb_emisor"])
+                    clave_simetrica_datos = self.decrypt_asymmetric(base64.b64decode(n["clave_simetrica"]),
+                                                                    self.current_private_key)
+                    datos = self.decrypt_symmetric( base64.b64decode(n["mensaje_cifrado"]),
+                                                    clave_simetrica_datos)
                     valido = kbp_emisor.verify(
                         base64.b64decode(n["firma"]),
-                        n["mensaje"].encode("utf-8"),
+                        datos.encode("utf-8"),
                         padding.PSS(
                             mgf=padding.MGF1(hashes.SHA256()),
                             salt_length=padding.PSS.MAX_LENGTH
@@ -402,7 +418,8 @@ class VehicleManager:
                     )
                     print(valido)
                     print("Mensaje verificado.")
-                    print(n["emisor"], "envia: ", n["mensaje"])
+
+                    print(n["emisor"], "envia: ", datos)
                 except:
                     print("Mensaje no verificado.")
 
