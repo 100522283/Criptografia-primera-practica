@@ -1,8 +1,11 @@
 from JsonStore import JsonStore
 import os
 import base64
-from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from Certificados import AutoridadCertificados
+from cryptography import x509
+from cryptography.x509.oid import NameOID
+
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, padding as asym_padding
@@ -34,8 +37,9 @@ class VehicleManager:
         self.users = []
         self.current_user = None
         self.current_private_key = None
+        self.autoridad = AutoridadCertificados()
 
-    def hash_password(self, password, salt=None):
+    def hash_password(self, password, salt = None):
         """Genera hash de contraseña usando PBKDF2"""
         if salt is None:
             salt = os.urandom(16)
@@ -76,22 +80,21 @@ class VehicleManager:
         # Generar hash apartir de la  contraseña
         salt, password_hash = self.hash_password(password)
 
-        # Generar las claves privadas y publicas del usuario
-        private_key, public_key = self.generate_key_pair()
+        # Generar las clave privada y luego crear un csr para ser firmado por la autoridad
+        private_key = self.generate_private_key()
+        csr = self.create_csr(private_key)
+        certificado= self.autoridad.firmar_certificado(csr)
+        if certificado == False:
+            return False
+        certificado_bytes = certificado.public_bytes(encoding=serialization.Encoding.PEM)
 
         # Cifrar clave privada con la contraseña
-
-        encrypted_private_key = self.encrypt_private_key(private_key, password) #falta por hacr
-
-        # Serializar clave pública
-        public_key_str = self.serialize_public_key(public_key)
-
-        # crear y almacenar usuario
+        encrypted_private_key = self.encrypt_private_key(private_key, password)
 
         json_user = {"username": username,
                      "password_hash": base64.b64encode(password_hash).decode("utf-8"),
                      "salt": base64.b64encode(salt).decode("utf-8"),
-                     "public_key_str": public_key_str,
+                     "certificate": base64.b64encode(certificado_bytes).decode("utf-8"),
                      "private_key_encrypted": base64.b64encode(encrypted_private_key).decode("utf-8"),
                      "vehicles":[],
                      "symmetric_key":[]}
@@ -137,26 +140,39 @@ class VehicleManager:
 
         return False
 
+    def create_csr(self, key):
+        # Generate a CSR
+        csr = x509.CertificateSigningRequestBuilder().subject_name(x509.Name([
+            # Provide various details about who we are.
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "ES"),
+            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Madrid"),
+            x509.NameAttribute(NameOID.LOCALITY_NAME, "Leganes"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Matriculas.com"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "Usuario"),
+        ])
+        ).sign(key, hashes.SHA256())
+        return csr
 
-    def generate_key_pair(self):
+    def generate_private_key(self):
         """Genera par de claves RSA"""
         private_key = rsa.generate_private_key(
             public_exponent=65537,
             key_size=2048
         )
-        public_key = private_key.public_key()
-        return private_key, public_key
+        return private_key
 
-    def serialize_public_key(self, public_key):
-        """Convierte a bytes la clave publica para poder ser usado en archivos json"""
-        return public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        ).decode()
 
-    def deserialize_public_key(self, public_key_str):
-        """Deserializa clave pública para poder ser usada en funciones del cryptohraphy()"""
-        return serialization.load_pem_public_key(public_key_str.encode())
+    def deserialize_certificate(self, certificado_serializado):
+
+        certificado_sin_bytes = base64.b64decode(certificado_serializado)
+        certificado = x509.load_pem_x509_certificate(certificado_sin_bytes)
+
+        if self.autoridad.verificar_firma_certificado(certificado):
+            print("Autoridad ha confirmado la firma")
+            return certificado
+        print("Autoridad no ha confirmado la firma")
+        return False
+
 
     def encrypt_private_key(self, private_key, password):
         """Cifra clave la clave privada a partir de la contraseña, se serializa automaticamente"""
@@ -166,7 +182,6 @@ class VehicleManager:
             encryption_algorithm=serialization.BestAvailableEncryption(password.encode())
         )
         return encrypted_private
-
     def decrypt_private_key(self, encrypted_private_key, password):
         """Descifra la calve privada a partir de la contraseña """
         try:
@@ -178,6 +193,7 @@ class VehicleManager:
         except Exception as e:
             print("Error al descifrar clave privada")
             return None
+
 
     def add_vehicle(self, license_plate, vehicle_data):
         """Añade un vehículo para el usuario actual"""
@@ -193,9 +209,11 @@ class VehicleManager:
         # Cifrar datos de coche con clave simétrica, los primeros 16 bytes son el texto generado para el nonce
         encrypted_vehicle_data = self.encrypt_symmetric(vehicle_data, symmetric_key)
 
-        # Obtener clave pública del usuario
-        public_key = self.deserialize_public_key(self.current_user[
-                                                     "public_key_str"])
+
+        certificado = self.deserialize_certificate(self.current_user["certificate"])
+        if certificado == False:
+            return False
+        public_key = certificado.public_key()
 
         # Cifrar la clave simétrica con la clave publica de nuestro usuario
         encrypted_symmetric_key = self.encrypt_asymmetric(symmetric_key, public_key)
@@ -254,7 +272,7 @@ class VehicleManager:
         chacha = ChaCha20Poly1305(key)
         nonce = os.urandom(12)  # 96 bits
         ciphertext = chacha.encrypt(nonce, data.encode(), None)
-        print("\nCifrado el dato con ChaCha-Poly1305: " + str(data) + " \nLongitud de clave " + str(len(key)) +"\nResultando en el texto cifrado: " + str(nonce)+str(ciphertext))
+        print("\nCifrado el dato con ChaCha-Poly1305: " + str(data) + " \nLongitud de clave " + str(len(key)) +"\nResultando en el texto cifrado: " + str(nonce)+str(ciphertext)+ "\n")
         # Guardamos nonce primeros 12 bytes + ciphertext el resto
         return nonce + ciphertext
 
@@ -277,10 +295,9 @@ class VehicleManager:
                 label=None
             )
         )
-        print("\nCifrado el dato usando RSA: " + str(data) + "\nLongitud de clave: 2048" + "\nResultando en el texto cifrado: " + str(ciphertext))
+        print("\nCifrado el dato usando RSA: " + str(data) + "\nLongitud de clave: 2048" + "\nResultando en el texto cifrado: " + str(ciphertext) + "\n")
 
         return ciphertext
-
 
     def decrypt_asymmetric(self, encrypted_data, private_key):
         """Descifrado asimétrico con RSA"""
@@ -317,57 +334,19 @@ class VehicleManager:
 
         return True
 
-    """def add_vehicle_to_user(self, license_plate, symmetric_key, user):
-        #Funcion para añadir la clave simetrica de un vehiculo a un usuario
-        if license_plate in user["vehicles"]:
-            print("User already haves this vehicle")
-            return False
-        # Obtener clave pública del usuario a compartir
-        public_key = self.deserialize_public_key(user["public_key_str"])
-
-        # Cifrar la clave simétrica con la clave publica de usuario a compartir
-        encrypted_symmetric_key = self.encrypt_asymmetric(symmetric_key, public_key)
-
-        for n in self.user_storer.elementos:
-            if n["username"] == user["username"]:
-                n["vehicles"].append(license_plate)
-                n["symmetric_key"].append(base64.b64encode(encrypted_symmetric_key).decode("utf-8"))
-
-        self.user_storer.guardar_datos()
-
-        return True
-
-    def share_vehicle(self,name ,matricula):
-        #Funcion para compartir un vehiculo a otro usuario
-        if not self.current_user or not self.current_private_key:
-            print("Este usuario no esta registrado en la base de datos")
-            return False
-
-        users = self.user_storer.elementos
-        found = False
-        for user in users:
-            if user["username"] == name:
-                found = True
-                symmetric_key = self.access_vehicle_symmetric(matricula)
-                if symmetric_key != False:
-                    self.add_vehicle_to_user(matricula, symmetric_key, user)
-        if not found:
-            print("No existe usuario para compartir los datos")
-            return False
-
-        return True"""
-
-
-
     def enviar_mensaje(self, receptor, matricula):
         matriculas, datos_coches = self.get_user_vehicles()
         usuarios = self.user_storer.elementos
         for n in usuarios:
             if n["username"] == receptor:
-                pbk_receptor = self.deserialize_public_key(n["public_key_str"])
+                print("Verificando Certificado del receptor: ")
+                certificado_receptor = self.deserialize_certificate(n["certificate"])
+                if certificado_receptor == False:
+                    return
+                pbk_receptor = certificado_receptor.public_key()
         for n in range(len(matriculas)):
             if matricula == matriculas[n]:
-                print(datos_coches[n])
+                print("Datos a compartir: " + datos_coches[n])
                 firma = self.current_private_key.sign(
                     datos_coches[n].encode("utf-8"),
                     padding.PSS(
@@ -376,20 +355,20 @@ class VehicleManager:
                     ),
                     hashes.SHA256()
                 )
-                print(firma)
-
                 clave_simetrica = self.access_vehicle_symmetric(matricula)
-
                 clave_simetrica_encriptada = self.encrypt_asymmetric(
                     clave_simetrica, pbk_receptor)
 
                 datos_cifrados = self.encrypt_symmetric(datos_coches[n], clave_simetrica)
 
+                certificado_emisor = self.deserialize_certificate(self.current_user["certificate"])
+                certificado_emisor_bytes = certificado_emisor.public_bytes(encoding=serialization.Encoding.PEM)
+
                 mensaje = {"clave_simetrica": base64.b64encode(clave_simetrica_encriptada).decode("utf-8"),
                            "mensaje_cifrado": base64.b64encode(datos_cifrados).decode("utf-8"),
                            "firma": base64.b64encode(firma).decode("utf-8"),
                            "emisor": self.current_user["username"],
-                           "kpb_emisor": self.current_user["public_key_str"],
+                           "certificado_emisor": base64.b64encode(certificado_emisor_bytes).decode("utf-8"),
                            "receptor": receptor}
 
                 self.mensajes_storer.sumar_elemento(mensaje)
@@ -397,17 +376,18 @@ class VehicleManager:
 
     def ver_mensajes(self):
         mensajes = self.mensajes_storer.elementos
-        """mis_mensajes= []
-        emisores = []"""
         for n in mensajes:
             if n["receptor"] == self.current_user["username"]:
+                certificado = self.deserialize_certificate(n["certificado_emisor"])
+                if certificado == False:
+                    raise Exception
+                kbp_emisor = certificado.public_key()
+                clave_simetrica_datos = self.decrypt_asymmetric(base64.b64decode(n["clave_simetrica"]),
+                                                                self.current_private_key)
+                datos = self.decrypt_symmetric(base64.b64decode(n["mensaje_cifrado"]),
+                                               clave_simetrica_datos)
                 try:
-                    kbp_emisor = self.deserialize_public_key(n["kpb_emisor"])
-                    clave_simetrica_datos = self.decrypt_asymmetric(base64.b64decode(n["clave_simetrica"]),
-                                                                    self.current_private_key)
-                    datos = self.decrypt_symmetric( base64.b64decode(n["mensaje_cifrado"]),
-                                                    clave_simetrica_datos)
-                    valido = kbp_emisor.verify(
+                    kbp_emisor.verify(
                         base64.b64decode(n["firma"]),
                         datos.encode("utf-8"),
                         padding.PSS(
@@ -416,11 +396,9 @@ class VehicleManager:
                         ),
                         hashes.SHA256()
                     )
-                    print(valido)
                     print("Mensaje verificado.")
-
                     print(n["emisor"], "envia: ", datos)
-                except:
+                except Exception as e:
                     print("Mensaje no verificado.")
 
 
