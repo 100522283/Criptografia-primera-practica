@@ -165,7 +165,11 @@ class VehicleManager:
     def deserialize_certificate(self, certificado_serializado):
 
         certificado_sin_bytes = base64.b64decode(certificado_serializado)
-        certificado = x509.load_pem_x509_certificate(certificado_sin_bytes)
+        try:
+            certificado = x509.load_pem_x509_certificate(certificado_sin_bytes)
+        except Exception:
+            print("Certifcado formato incorrecto")
+            return False
 
         if self.autoridad.verificar_firma_certificado(certificado):
             print("Autoridad ha confirmado la firma")
@@ -380,7 +384,7 @@ class VehicleManager:
             if n["receptor"] == self.current_user["username"]:
                 certificado = self.deserialize_certificate(n["certificado_emisor"])
                 if certificado == False:
-                    raise Exception
+                    return
                 kbp_emisor = certificado.public_key()
                 clave_simetrica_datos = self.decrypt_asymmetric(base64.b64decode(n["clave_simetrica"]),
                                                                 self.current_private_key)
